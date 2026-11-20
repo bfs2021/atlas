@@ -964,9 +964,13 @@ export function computeAtlasScore(inputs: ScoreInputs, prefs?: UserPreferences |
     { score: breakdown.opportunity,       weight: dimWeight(p.weight_opportunity, 'opportunity') },
     { score: breakdown.lifestyleVibrancy, weight: dimWeight(p.weight_lifestyle_vibrancy, 'lifestyle_vibrancy') },
     { score: breakdown.airQuality,        weight: dimWeight(p.weight_air_quality, 'air_quality') },
-    { score: breakdown.safety,            weight: p.weight_safety },
     { score: breakdown.connectivity,      weight: dimWeight(p.weight_connectivity, 'connectivity') },
   ];
+  // Safety is deliberately not in this list. It's never scored yet (breakdown.safety is always
+  // null), and weight_safety isn't its weight: that column is repurposed as the political-lean
+  // deal-breaker flag (see below). Listing it here counted that 90 as weight with no data behind
+  // it, which dragged down dataCoverage for anyone with the political deal breaker on. Give
+  // safety its own weight once it has a data source.
 
   if (politicalScore != null) {
     // County-level data (the common case) is weighted lower than every other dimension

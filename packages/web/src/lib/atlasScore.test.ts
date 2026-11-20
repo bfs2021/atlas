@@ -533,11 +533,31 @@ describe("computeAtlasScore — political lean (opt-in only)", () => {
     expect(r.score).toBe(100);
   });
 
-  // Possible bug, flagged in the PR rather than pinned here: the political-lean deal-breaker flag
-  // is stored in weight_safety, and computeAtlasScore also uses weight_safety as the weight of the
-  // (always-null) safety dimension. That phantom 90 counts toward maxPossibleWeight, so turning
-  // the deal breaker on lowers dataCoverage (and can flip hasEnoughData) even with full data.
-  it.todo("political deal breaker should not count a phantom safety weight against dataCoverage");
+  // Regression for #150: the political deal-breaker flag lives in weight_safety, which used to
+  // double as the weight of the (never-scored) safety row, so turning it on counted 90 weight
+  // points with no data behind them and dragged dataCoverage down.
+  it("does not count the political deal-breaker flag against dataCoverage", () => {
+    // Explicit lifestyle/connectivity picks: "any" scores null for those two (see #156), which
+    // would lower coverage for an unrelated reason.
+    const p = prefs({
+      political_lean_preference: "progressive",
+      weight_safety: 90,
+      lifestyle_preference: ["urban"],
+      connectivity_preference: ["balanced"],
+    });
+    const full = computeAtlasScore(GOLDEN.denverLike, p);
+    expect(full.politicalScore).not.toBeNull();
+    expect(full.dataCoverage).toBe(1);
+    expect(full.hasEnoughData).toBe(true);
+
+    // No political data: only the missing political row counts against coverage.
+    const noLean = computeAtlasScore({ ...GOLDEN.denverLike, politicalLean: null }, p);
+    expect(noLean.dataCoverage).toBe(1);
+
+    // The flag alone (no political preference) must not change coverage either.
+    expect(computeAtlasScore(GOLDEN.smallTown, prefs({ weight_safety: 90 })).dataCoverage)
+      .toBe(computeAtlasScore(GOLDEN.smallTown, prefs()).dataCoverage);
+  });
 });
 
 describe("politicalDimTier", () => {
