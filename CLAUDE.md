@@ -183,6 +183,10 @@ RESEND_API_KEY=               # Resend API key, for the /contact form. Optional 
 CONTACT_TO_EMAIL=             # inbox that contact form submissions are delivered to
 CONTACT_FROM_EMAIL=           # "from" address; must be on a domain verified in Resend
 TURNSTILE_SECRET_KEY=         # optional — verifies TurnstileWidget tokens server-side for the /contact form
+CORS_ORIGINS=                 # comma-separated browser origin allowlist. REQUIRED in production, set in the API host's env (not just .env.development).
+                              # Exact origins ("https://atlas.example.com") plus optional `*` patterns that match within one hostname label
+                              # (e.g. "https://atlas-*-my-team.vercel.app" for project-scoped Vercel previews; never a bare "*.vercel.app").
+                              # Unset → only local dev origins (localhost:5173, 127.0.0.1:5173, atlas.local) are allowed and a warning is logged.
 ```
 
 If `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` are absent the API still works — auth and user data features degrade but core data endpoints are unaffected.

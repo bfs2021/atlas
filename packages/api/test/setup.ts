@@ -13,6 +13,7 @@ for (const key of [
   "CENSUS_API_KEY",
   "BLS_API_KEY",
   "TURNSTILE_SECRET_KEY",
+  "CORS_ORIGINS",
 ]) {
   delete process.env[key];
 }

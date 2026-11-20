@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import cors from "cors";
+import { buildCorsOptions } from "./common/cors.js";
 import citiesRouter from "./cities/cities.route.js";
 import housingRouter from "./housing/housing.route.js";
 import incomeRouter from "./income/income.route.js"
@@ -28,7 +29,7 @@ export function createApp(): Express {
 
   app.set("trust proxy", true);
   app.use(express.json());
-  app.use(cors({ origin: "*"}));
+  app.use(cors(buildCorsOptions()));
 
   app.get('/health', (_req, res) => {
     res.json({ status: "ok" });
