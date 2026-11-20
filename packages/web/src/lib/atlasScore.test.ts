@@ -395,6 +395,15 @@ describe("computeAtlasScore — city characteristics", () => {
 describe("computeAtlasScore — personalized", () => {
   const phoenixClimate = { avgTempF: 75, summerAvgHighF: 106, winterAvgLowF: 46, annualPrecipitationInches: 8, freezingDaysPerYear: 3 };
 
+  it("scores the default 'any' preference as a full match for lifestyle and connectivity", () => {
+    // DEFAULT_PREFERENCES leaves both questions at ['any']; before the fix they scored null
+    // (no 'any' row in MATCH_SCORES), dropping the dimensions from the composite while their
+    // weight still counted against dataCoverage. climate/jobMarket already have 'any' rows.
+    const r = computeAtlasScore(GOLDEN.denverLike, prefs());
+    expect(r.breakdown.lifestyleVibrancy).toBe(100);
+    expect(r.breakdown.connectivity).toBe(100);
+  });
+
   it("scores a dimension by how well the city's characteristic matches the preference", () => {
     const exact = computeAtlasScore(inputs({ climate: phoenixClimate }), prefs({ climate_preference: ["hot_dry"] }));
     expect(exact.isPersonalized).toBe(true);

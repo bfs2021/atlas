@@ -435,6 +435,11 @@ const MATCH_SCORES: Record<string, Record<string, Record<string, number>>> = {
       'Urban edge':       55,
       'City energy':      30,
     },
+    any: {
+      'City energy':      100,
+      'Urban edge':       100,
+      'Quiet & suburban': 100,
+    },
   },
 
   airQuality: {
@@ -478,6 +483,11 @@ const MATCH_SCORES: Record<string, Record<string, Record<string, number>>> = {
       'Balanced & accessible': 90,
       'Dense & walkable':      75,
       'Suburban & drivable':   55,
+    },
+    any: {
+      'Dense & walkable':      100,
+      'Balanced & accessible': 100,
+      'Suburban & drivable':   100,
     },
   },
 };
