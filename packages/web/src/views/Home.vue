@@ -1268,12 +1268,14 @@ async function closeExpandedSection() {
           <CitySearch
             :initial-city="compareCityA.city"
             :initial-state="compareCityA.state"
+            :hide-submit="true"
             @search="onCompareASearch"
           />
           <div class="hero-compare-picker__divider"></div>
           <CitySearch
             :initial-city="compareCityB.city"
             :initial-state="compareCityB.state"
+            :hide-submit="true"
             @search="onCompareBSearch"
           />
           <button

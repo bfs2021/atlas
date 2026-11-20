@@ -6,6 +6,7 @@ const props = defineProps<{
   initialCity?: string;
   initialState?: string;
   compact?: boolean;
+  hideSubmit?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -302,7 +303,7 @@ watch(() => localState.value, fetchCities, { immediate: true });
         </li>
       </ul>
     </div>
-    <button class="search-bar__submit" :class="{ 'search-bar__submit--icon': compact }" @click="submit" :aria-label="compact ? 'Search' : undefined">
+    <button v-if="!hideSubmit" class="search-bar__submit" :class="{ 'search-bar__submit--icon': compact }" @click="submit" :aria-label="compact ? 'Search' : undefined">
       <span v-if="compact" class="mdi mdi-magnify"></span>
       <span v-else>Search</span>
     </button>
