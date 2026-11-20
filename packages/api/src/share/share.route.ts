@@ -1,36 +1,35 @@
 import { Router } from "express";
+import { z } from "zod";
 import { getShareComparison, renderShareHtml, renderShareImage } from "./share.service.js";
+import { citySlug, route, stateCode } from "../common/validation.js";
 
 const router: Router = Router();
 
-router.get("/compare/:stateA/:cityA/:stateB/:cityB", async (req, res) => {
-  try {
-    const { stateA, cityA, stateB, cityB } = req.params;
-    const comparison = await getShareComparison(stateA, cityA, stateB, cityB);
+const compareParams = z.object({
+  stateA: stateCode,
+  cityA: citySlug,
+  stateB: stateCode,
+  cityB: citySlug,
+});
 
+router.get(
+  "/compare/:stateA/:cityA/:stateB/:cityB",
+  route({ params: compareParams }, async ({ params }, req, res) => {
+    const comparison = await getShareComparison(params.stateA, params.cityA, params.stateB, params.cityB);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=300");
     res.send(renderShareHtml(req, comparison));
-  } catch (error) {
-    console.error(error);
-    const message = error instanceof Error ? error.message : "Failed to generate share page";
-    res.status(500).type("text/plain").send(message);
-  }
-});
+  }),
+);
 
-router.get("/compare/:stateA/:cityA/:stateB/:cityB/image.svg", async (req, res) => {
-  try {
-    const { stateA, cityA, stateB, cityB } = req.params;
-    const comparison = await getShareComparison(stateA, cityA, stateB, cityB);
-
+router.get(
+  "/compare/:stateA/:cityA/:stateB/:cityB/image.svg",
+  route({ params: compareParams }, async ({ params }, _req, res) => {
+    const comparison = await getShareComparison(params.stateA, params.cityA, params.stateB, params.cityB);
     res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=300");
     res.send(renderShareImage(comparison));
-  } catch (error) {
-    console.error(error);
-    const message = error instanceof Error ? error.message : "Failed to generate share image";
-    res.status(500).type("text/plain").send(message);
-  }
-});
+  }),
+);
 
 export default router;

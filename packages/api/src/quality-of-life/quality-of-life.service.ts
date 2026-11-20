@@ -5,6 +5,7 @@ import { BTS_ENPLANEMENTS_AS_OF, BTS_SOURCE_URL, FAA_AIRPORT_REFERENCE_AS_OF, FA
 import { getTransitInfo, NTD_AS_OF, NTD_SOURCE_URL } from "./transit-reference.js";
 import type { AirportInfo, QualityOfLifeDetails, QualityOfLifeSummary } from "./quality-of-life.types.js";
 import { getCached, TTL_ACS_YEAR_SECONDS } from "../common/cache.js";
+import { UpstreamError } from "../common/errors.js";
 
 export function getQualityOfLifeSummary(city: City, year: number): Promise<QualityOfLifeSummary> {
   return getCached(`qol:${year}:${city.state}:${city.slug}`, () => fetchQualityOfLifeSummary(city, year), {
@@ -97,13 +98,13 @@ async function fetchLaborMetrics(city: City, year: number): Promise<{
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(`Failed to fetch ACS labor metrics: ${response.status} ${body}`);
+    throw new UpstreamError(`Failed to fetch ACS labor metrics: ${response.status} ${body}`);
   }
 
   const data = (await response.json()) as string[][];
   const row = data[1];
   if (!row) {
-    throw new Error("ACS labor metrics response missing data row");
+    throw new UpstreamError("ACS labor metrics response missing data row");
   }
 
   const totalPopulation16Plus = toNumber(row[0]);

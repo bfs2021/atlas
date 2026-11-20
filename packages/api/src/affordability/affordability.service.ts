@@ -6,6 +6,7 @@ import { getCityHousing, getDetailedCityHousing } from "../housing/housing.servi
 import { STATE_GAS_PREMIUMS, NATIONAL_MEDIAN_HOUSEHOLD_INCOME } from "./gas-price-reference.js";
 import { STATE_ELECTRICITY_PREMIUMS, STATE_EV_CHARGERS_PER_100K, STATE_EV_ADOPTION_PCT } from "./ev-reference.js";
 import { getCached, TTL_ACS_YEAR_SECONDS } from "../common/cache.js";
+import { UpstreamError } from "../common/errors.js";
 
 function classifyAffordability(ratio: number): AffordabilityLevel {
   if (ratio <= 0.25) return "Comfortably Affordable";
@@ -75,11 +76,11 @@ async function fetchRentBurdenBands(city: City, year: number): Promise<RentBurde
   const res = await fetch(url);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Failed to fetch Census rent burden data: ${res.status} ${text}`);
+    throw new UpstreamError(`Failed to fetch Census rent burden data: ${res.status} ${text}`);
   }
   const data = (await res.json()) as string[][];
   const row = data[1];
-  if (!row) throw new Error("Census response missing data row");
+  if (!row) throw new UpstreamError("Census response missing data row");
 
   const n = toNumber;
 

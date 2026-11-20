@@ -1,6 +1,7 @@
 import { STATE_FIPS, type SupportedState } from "../states/states.types.js";
 import { toNumber } from "../common/census.js";
 import { getCached, TTL_ACS_YEAR_SECONDS } from "../common/cache.js";
+import { BadRequestError, NotFoundError, UpstreamError } from "../common/errors.js";
 
 export type PlaceType =
   | "city"
@@ -69,7 +70,7 @@ export async function getResolvedPlacesForState(
   const stateFips = STATE_FIPS[stateCode];
 
   if (!stateFips) {
-    throw new Error(`Unsupported state: ${stateCode}`);
+    throw new BadRequestError(`Unsupported state: ${stateCode}`);
   }
 
   return getCached(
@@ -108,7 +109,7 @@ export async function resolvePlace(
     return [...aliasMatches].sort(comparePlaces)[0]!;
   }
 
-  throw new Error("City not found");
+  throw new NotFoundError("City not found");
 }
 
 async function getListedResolvedPlacesForState(
@@ -177,11 +178,11 @@ async function fetchResolvedPlaces(
   ]);
 
   if (!placeResponse.ok) {
-    throw new Error(`Unable to fetch places for state: ${stateCode}`);
+    throw new UpstreamError(`Unable to fetch places for state: ${stateCode}`);
   }
 
   if (!countySubdivisionResponse.ok) {
-    throw new Error(`Unable to fetch county subdivisions for state: ${stateCode}`);
+    throw new UpstreamError(`Unable to fetch county subdivisions for state: ${stateCode}`);
   }
 
   const placeData = (await placeResponse.json()) as string[][];

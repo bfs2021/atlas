@@ -2,6 +2,7 @@ import type { City } from "../cities/cities.types.js";
 import type { EducationAttainment } from "./education.types.js";
 import { buildCensusGeoQuery } from "../common/census.js";
 import { getCached, TTL_ACS_YEAR_SECONDS } from "../common/cache.js";
+import { UpstreamError } from "../common/errors.js";
 
 export function getCityEducation(city: City, year: number): Promise<EducationAttainment> {
   return getCached(`education:${year}:${city.state}:${city.slug}`, () => fetchCityEducation(city, year), {
@@ -32,12 +33,12 @@ async function fetchCityEducation(city: City, year: number): Promise<EducationAt
   const res = await fetch(url);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Census education fetch failed: ${res.status} ${text}`);
+    throw new UpstreamError(`Census education fetch failed: ${res.status} ${text}`);
   }
 
   const data = (await res.json()) as string[][];
   const row = data[1];
-  if (!row) throw new Error("Census education response missing data row");
+  if (!row) throw new UpstreamError("Census education response missing data row");
 
   const n = (v: string | undefined) => {
     const num = Number(v);

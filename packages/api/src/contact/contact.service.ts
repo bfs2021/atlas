@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { z } from "zod";
 import { getRedis } from "../common/cache.js";
 import { ContactRateLimitError, ContactValidationError, type ContactRequest } from "./contact.types.js";
 
@@ -47,25 +48,36 @@ function getResend(): Resend | null {
   return _resend;
 }
 
-function validate(body: Partial<ContactRequest>): ContactRequest {
-  const name = body.name?.trim() ?? "";
-  const email = body.email?.trim() ?? "";
-  const message = body.message?.trim() ?? "";
+// Messages are shown to the user verbatim by the contact form, so each check keeps its own
+// wording. Non-string values (e.g. a number for `name`) fail the same check as a blank field.
+const requiredText = (max: number, message: string) =>
+  z.string({ error: message }).trim().min(1, message).max(max, message);
 
-  if (!name || name.length > MAX_NAME_LENGTH) {
-    throw new ContactValidationError("Please enter a valid name.");
-  }
-  if (!isValidEmail(email)) {
-    throw new ContactValidationError("Please enter a valid email address.");
-  }
-  if (!message || message.length > MAX_MESSAGE_LENGTH) {
-    throw new ContactValidationError(`Message must be between 1 and ${MAX_MESSAGE_LENGTH} characters.`);
-  }
-  if (containsProfanity(name, email)) {
-    throw new ContactValidationError("Please enter a valid name and email address.");
-  }
+export const contactBodySchema = z
+  .object({
+    name: requiredText(MAX_NAME_LENGTH, "Please enter a valid name."),
+    // isValidEmail instead of z.email(): it's the linear-time check described above, and it
+    // runs only after the length cap.
+    email: z
+      .string({ error: "Please enter a valid email address." })
+      .trim()
+      .refine(isValidEmail, "Please enter a valid email address."),
+    message: requiredText(
+      MAX_MESSAGE_LENGTH,
+      `Message must be between 1 and ${MAX_MESSAGE_LENGTH} characters.`,
+    ),
+    turnstileToken: z.string().optional(),
+  })
+  .refine(({ name, email }) => !containsProfanity(name, email), {
+    message: "Please enter a valid name and email address.",
+  });
 
-  return { name, email, message, turnstileToken: body.turnstileToken };
+function validate(body: unknown): ContactRequest {
+  const result = contactBodySchema.safeParse(body ?? {});
+  if (!result.success) {
+    throw new ContactValidationError(result.error.issues[0]!.message);
+  }
+  return result.data;
 }
 
 // Cloudflare Turnstile verification is skipped (not a hard failure) when TURNSTILE_SECRET_KEY
@@ -108,7 +120,7 @@ async function checkRateLimit(ip: string): Promise<void> {
   }
 }
 
-export async function sendContactMessage(body: Partial<ContactRequest>, ip: string): Promise<void> {
+export async function sendContactMessage(body: unknown, ip: string): Promise<void> {
   await checkRateLimit(ip);
   const { name, email, message, turnstileToken } = validate(body);
   await verifyTurnstile(turnstileToken);

@@ -77,7 +77,9 @@ async function load() {
       ? (err as { status?: number }).status
       : undefined;
 
-    if (status === 404) {
+    // 400 = the API rejected the state/slug itself (e.g. a hand-typed URL), which to the user
+    // is the same as a city that doesn't exist.
+    if (status === 404 || status === 400) {
       emit('not-found');
       return;
     }

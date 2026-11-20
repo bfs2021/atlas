@@ -5,6 +5,7 @@ import { getCached, TTL_ACS_YEAR_SECONDS } from "../common/cache.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { UpstreamError } from "../common/errors.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -382,13 +383,13 @@ async function fetchCensusData(url: string): Promise<string[]> {
   const res = await fetch(url);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Failed to fetch Census data: ${res.status} ${text}`);
+    throw new UpstreamError(`Failed to fetch Census data: ${res.status} ${text}`);
   }
 
   const data = (await res.json()) as string[][];
   const row = data[1];
   if (!row) {
-    throw new Error("Census response missing data row");
+    throw new UpstreamError("Census response missing data row");
   }
 
   return row;

@@ -1,5 +1,6 @@
 import type { City } from "../cities/cities.types.js";
 import type { CostOfLivingIndex, ColCategory } from "./cost-of-living.types.js";
+import { UpstreamError } from "../common/errors.js";
 
 const BEA_BASE = "https://apps.bea.gov/api/data";
 const RPP_YEAR = "2023";
@@ -42,11 +43,11 @@ async function fetchBEARppViaApi(tableName: "MARPP" | "SARPP", geoFips: "MSA" | 
     `&TableName=${tableName}&LineCode=${LINECODE}&GeoFips=${geoFips}&Year=${RPP_YEAR}&ResultFormat=JSON`;
 
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`BEA API error: ${res.status}`);
+  if (!res.ok) throw new UpstreamError(`BEA API error: ${res.status}`);
 
   const json = (await res.json()) as any;
   const results = json?.BEAAPI?.Results;
-  if (results?.Error) throw new Error(`BEA API: ${results.Error.APIErrorDescription}`);
+  if (results?.Error) throw new UpstreamError(`BEA API: ${results.Error.APIErrorDescription}`);
 
   return results?.Data ?? [];
 }
@@ -69,7 +70,7 @@ async function loadRppFromZip(): Promise<{ msaData: Map<string, RppRecord>; stat
 
   console.log("[col] Downloading BEA RPP.zip (no API key)...");
   const res = await fetch(ZIP_URL);
-  if (!res.ok) throw new Error(`Failed to download RPP.zip: ${res.status}`);
+  if (!res.ok) throw new UpstreamError(`Failed to download RPP.zip: ${res.status}`);
 
   const buf = Buffer.from(await res.arrayBuffer());
   const tmpZip = "/tmp/bea_rpp_svc.zip";

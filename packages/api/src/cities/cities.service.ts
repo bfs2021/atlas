@@ -3,6 +3,7 @@ import { STATE_FIPS, type SupportedState } from '../states/states.types.js';
 import { buildCensusGeoQuery } from "../common/census.js";
 import { resolvePlace } from "../places/place-resolver.js";
 import { getCached, TTL_ACS_YEAR_SECONDS } from "../common/cache.js";
+import { BadRequestError, UpstreamError } from "../common/errors.js";
 
 export async function getCity(
   state: string,
@@ -23,7 +24,7 @@ async function fetchCity(
   const stateFips = STATE_FIPS[stateCode];
 
   if (!stateFips) {
-    throw new Error(`Unsupported state: ${stateCode}`);
+    throw new BadRequestError(`Unsupported state: ${stateCode}`);
   }
 
   const place = await resolvePlace(stateCode, citySlug, year);
@@ -35,7 +36,7 @@ async function fetchCity(
 
   if (!incomeResponse.ok) {
     const body = await incomeResponse.text().catch(() => "");
-    throw new Error(`Failed to fetch Census data: ${incomeResponse.status} ${body}`);
+    throw new UpstreamError(`Failed to fetch Census data: ${incomeResponse.status} ${body}`);
   }
 
   const incomeData = (await incomeResponse.json()) as string[][];
@@ -110,7 +111,7 @@ async function getCountyFromPlace(
     const fallback = await tryYear(2023);
     if (fallback) return fallback;
   }
-  throw new Error("Failed to fetch county for place");
+  throw new UpstreamError("Failed to fetch county for place");
 }
 
 /**

@@ -3,6 +3,7 @@ import type { CityIncome, DetailedCityIncome, EarningsByEducation, IncomeAfforda
 import { buildCensusGeoQuery, toNumber } from "../common/census.js";
 import { getCached, TTL_ACS_YEAR_SECONDS } from "../common/cache.js";
 import { getJobsWithinRadius } from "./regional-jobs.service.js";
+import { UpstreamError } from "../common/errors.js";
 
 export function getCityIncome(city: City, year: number): Promise<CityIncome> {
   return getCached(`income:${year}:${city.state}:${city.slug}`, () => fetchCityIncome(city, year), {
@@ -47,12 +48,12 @@ async function fetchCityIncome(city: City, year: number): Promise<CityIncome> {
   const res = await fetch(url);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Failed to fetch Census income data: ${res.status} ${text}`);
+    throw new UpstreamError(`Failed to fetch Census income data: ${res.status} ${text}`);
   }
 
   const data = (await res.json()) as string[][];
   const row = data[1];
-  if (!row) throw new Error("Census income response missing data row");
+  if (!row) throw new UpstreamError("Census income response missing data row");
 
   // Helper: Census sometimes returns null-like strings
   const n = toNumber;
@@ -364,10 +365,10 @@ async function fetchCensusRow(url: string): Promise<string[]> {
   const res = await fetch(url);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Failed to fetch Census data: ${res.status} ${text}`);
+    throw new UpstreamError(`Failed to fetch Census data: ${res.status} ${text}`);
   }
   const data = (await res.json()) as string[][];
   const row = data[1];
-  if (!row) throw new Error('Census response missing data row');
+  if (!row) throw new UpstreamError('Census response missing data row');
   return row;
 }

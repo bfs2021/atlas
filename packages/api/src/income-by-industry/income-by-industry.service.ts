@@ -3,6 +3,7 @@ import { getCached } from "../common/cache.js";
 import { INDUSTRY_SOC_GROUPS, INDUSTRY_LABELS } from "./soc-mapping.js";
 import { MSA_CODES } from "./msa-codes.js";
 import type { IndustrySalaryData, IndustrySalaryTier, SeniorityLevel } from "./income-by-industry.types.js";
+import { UpstreamError } from "../common/errors.js";
 
 const BLS_BASE = "https://api.bls.gov/publicAPI/v2/timeseries/data/";
 const SOURCE = "BLS Occupational Employment & Wage Statistics (OEWS)";
@@ -99,7 +100,7 @@ async function fetchOewsSeries(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ seriesid: jobs.map((j) => j.seriesId), registrationkey: apiKey }),
   });
-  if (!res.ok) throw new Error(`BLS API request failed: ${res.status}`);
+  if (!res.ok) throw new UpstreamError(`BLS API request failed: ${res.status}`);
   const body = await res.json() as { Results?: { series?: { seriesID: string; data: { value: string; latest?: string }[] }[] } };
 
   const bySeriesId = new Map<string, number | null>();

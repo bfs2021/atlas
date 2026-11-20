@@ -4,6 +4,7 @@ import type { SourceAttribution } from "../common/source.types.js";
 import type { CityProfileDetails, CityProfileSummary, PercentageBreakdown, UrbanCharacter } from "./city-profile.types.js";
 import { getPoliticalAffiliation } from "./politics-reference.js";
 import { getCached, TTL_ACS_YEAR_SECONDS } from "../common/cache.js";
+import { UpstreamError } from "../common/errors.js";
 
 const ACS_SOURCE = (year: number): SourceAttribution => ({
   sourceName: "U.S. Census Bureau ACS 5-year",
@@ -234,13 +235,13 @@ async function fetchCensusRow(city: City, year: number, vars: string[]): Promise
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(`Failed to fetch Census city profile data: ${response.status} ${body}`);
+    throw new UpstreamError(`Failed to fetch Census city profile data: ${response.status} ${body}`);
   }
 
   const data = (await response.json()) as string[][];
   const row = data[1];
   if (!row) {
-    throw new Error("Census city profile response missing data row");
+    throw new UpstreamError("Census city profile response missing data row");
   }
 
   return row.slice(0, vars.length);

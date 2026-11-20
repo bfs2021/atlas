@@ -5,6 +5,7 @@ import { getCityHousing } from "../housing/housing.service.js";
 import type { FinancialDetails, FinancialSummary } from "./financial.types.js";
 import { FINANCIAL_REFERENCE_AS_OF, MINIMUM_WAGE_SOURCE_URL, STATE_FINANCIAL_REFERENCE } from "./financial-reference.js";
 import { getCached, TTL_ACS_YEAR_SECONDS } from "../common/cache.js";
+import { UpstreamError } from "../common/errors.js";
 
 const NATIONAL_MEDIAN_HOUSEHOLD_INCOME = 80610;
 
@@ -125,13 +126,13 @@ async function getPropertyTaxProxy(city: City, year: number): Promise<MetricWith
 
   if (!response.ok) {
     const body = await response.text().catch(() => "");
-    throw new Error(`Failed to fetch Census property tax data: ${response.status} ${body}`);
+    throw new UpstreamError(`Failed to fetch Census property tax data: ${response.status} ${body}`);
   }
 
   const data = (await response.json()) as string[][];
   const row = data[1];
   if (!row) {
-    throw new Error("Census property tax response missing data row");
+    throw new UpstreamError("Census property tax response missing data row");
   }
 
   const medianTaxes = toNumber(row[0]);

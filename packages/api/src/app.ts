@@ -1,5 +1,6 @@
 import express, { type Express } from "express";
 import cors from "cors";
+import { errorHandler } from "./common/error-handler.js";
 import citiesRouter from "./cities/cities.route.js";
 import housingRouter from "./housing/housing.route.js";
 import incomeRouter from "./income/income.route.js"
@@ -54,6 +55,9 @@ export function createApp(): Express {
   app.use('/city-photo', cityPhotoRouter);
   app.use('/city-location', cityLocationRouter);
   app.use('/contact', contactRouter);
+
+  // Must be registered after every router.
+  app.use(errorHandler);
 
   return app;
 }

@@ -1,26 +1,22 @@
-import { Router, Request, Response } from "express";
+import { Router } from "express";
+import { z } from "zod";
 import { getStates, getCitiesForState } from "./states.service.js";
+import { route, stateCode } from "../common/validation.js";
 
 const router: Router = Router();
 
-router.get("/", (_req: Request, res: Response) => {
-    try {
-        const states = getStates();
-        res.json(states);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to fetch states" });
-    }
-});
+router.get(
+  "/",
+  route({}, (_input, _req, res) => {
+    res.json(getStates());
+  }),
+);
 
-router.get("/:state/cities", async (req, res) => {
-   try {
-       const { state } = req.params;
-       const cities = await getCitiesForState(state);
-       res.json(cities);
-   }  catch (error) {
-       res.status(400).json({ error: (error as Error).message });
-   }
-});
+router.get(
+  "/:state/cities",
+  route({ params: z.object({ state: stateCode }) }, async ({ params }, _req, res) => {
+    res.json(await getCitiesForState(params.state));
+  }),
+);
 
 export default router;

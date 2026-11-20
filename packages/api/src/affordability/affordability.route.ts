@@ -1,36 +1,28 @@
 import { Router } from "express";
+import { z } from "zod";
 import { getCity } from "../cities/cities.service.js";
 import { getCityAffordability, getDetailedCityAffordability } from "./affordability.service.js";
 import { CURRENT_ACS_YEAR } from "../constants.js";
+import { acsYear, cityParams, route } from "../common/validation.js";
 
 const router: Router = Router();
 
-router.get("/:state/:city", async (req, res, next) => {
-  try {
-    const { state, city } = req.params;
-    const year = Number(req.query.year) || CURRENT_ACS_YEAR;
+const affordabilityQuery = z.object({ year: acsYear.default(CURRENT_ACS_YEAR) });
 
-    const cityData = await getCity(state, city, year);
-    const affordability = await getCityAffordability(cityData, year);
+router.get(
+  "/:state/:city",
+  route({ params: cityParams, query: affordabilityQuery }, async ({ params, query }, _req, res) => {
+    const cityData = await getCity(params.state, params.city, query.year);
+    res.json(await getCityAffordability(cityData, query.year));
+  }),
+);
 
-    res.json(affordability);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get("/:state/:city/details", async (req, res, next) => {
-  try {
-    const { state, city } = req.params;
-    const year = Number(req.query.year) || CURRENT_ACS_YEAR;
-
-    const cityData = await getCity(state, city, year);
-    const affordability = await getDetailedCityAffordability(cityData, year);
-
-    res.json(affordability);
-  } catch (err) {
-    next(err);
-  }
-});
+router.get(
+  "/:state/:city/details",
+  route({ params: cityParams, query: affordabilityQuery }, async ({ params, query }, _req, res) => {
+    const cityData = await getCity(params.state, params.city, query.year);
+    res.json(await getDetailedCityAffordability(cityData, query.year));
+  }),
+);
 
 export default router;
