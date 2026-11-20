@@ -54,9 +54,9 @@ export interface UserPreferences {
   // importance dial above (picking "Very important" does NOT imply deal breaker), but marking a
   // deal breaker DOES push that dimension's importance dial to "high" (see toggleDealbreaker in
   // PreferencesSetup.vue), so the two don't visually contradict each other. Repurposes
-  // weight_education (the old education-scoring column — dropped from the app when opportunityScore
-  // started deriving its inputs from profile.educationalAttainment directly, see CLAUDE.md) since
-  // it's otherwise fully dead and has no CHECK constraint. Offset by DEALBREAKER_OFFSET so any
+  // weight_education (the old education-scoring column — dropped when education stopped being a
+  // scored dimension; Opportunity deliberately ignores educational attainment, see
+  // rawOpportunityScore in atlasScore.ts) since it's otherwise fully dead and has no CHECK constraint. Offset by DEALBREAKER_OFFSET so any
   // leftover legacy value from when this column meant something else (small, e.g. 15) never gets
   // misread as a bitmask — see isDealbreakerDim / withDealbreakerToggled below.
   weight_education:         number;
