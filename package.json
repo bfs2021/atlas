@@ -5,7 +5,8 @@
   "packageManager": "pnpm@10.24.0",
   "scripts": {
     "dev": "./dev.sh",
-    "dev:web": "pnpm --filter @atlas/web dev"
+    "dev:web": "pnpm --filter @atlas/web dev",
+    "test": "pnpm -r --if-present test"
   },
   "dependencies": {
     "@mdi/js": "^7.4.47"
