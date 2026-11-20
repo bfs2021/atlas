@@ -26,6 +26,10 @@ html:not(.dark) .search-bar {
   margin-bottom: 0;
 }
 
+.hero-content .search-bar--dropdown-open {
+  z-index: 10;
+}
+
 /* =====================
    STATE AUTOCOMPLETE
 ===================== */

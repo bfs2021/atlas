@@ -258,7 +258,7 @@ watch(() => localState.value, fetchCities, { immediate: true });
 </script>
 
 <template>
-  <div class="search-bar" :class="{ 'search-bar--compact': compact }">
+  <div class="search-bar" :class="{ 'search-bar--compact': compact, 'search-bar--dropdown-open': showStateSuggestions || showSuggestions }">
     <div class="state-search-container">
       <input
         v-model="stateQuery"
