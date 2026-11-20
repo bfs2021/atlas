@@ -17,6 +17,7 @@ import DataSources from '../views/DataSources.vue';
 import HowScoringWorks from '../views/HowScoringWorks.vue';
 import Contact from '../views/Contact.vue';
 import NotFound from '../views/NotFound.vue';
+import { setPageTitle, titleForRoute } from '../lib/pageTitle';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -219,6 +220,12 @@ router.beforeEach(async (to) => {
     return { name: 'search' };
   }
   return true;
+});
+
+// Keep the browser tab title in sync with the current page/city.
+router.afterEach((to, _from, failure) => {
+  if (failure) return;
+  setPageTitle(titleForRoute(to));
 });
 
 export default router;
