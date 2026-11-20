@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import DashboardHeader from '../components/DashboardHeader.vue';
 import { useAuth } from '../composables/useAuth';
 import { useFriends } from '../composables/useFriends';
-import { useComparisons, type SavedComparison } from '../composables/useComparisons';
+import { useComparisons, toSavedComparison, type SavedComparison, type SavedComparisonCity } from '../composables/useComparisons';
 import { useRecentSearches } from '../composables/useRecentSearches';
 import { fetchCityPhoto } from '../lib/cityPhotos';
 import { fetchCity } from '../api/cities';
@@ -24,7 +24,7 @@ function onHeaderSearch(payload: { city: string; state: string }) {
 
 const { user } = useAuth();
 const { getFriendshipStatus } = useFriends();
-const { savedComparisons, fetchComparisons, removeComparison } = useComparisons();
+const { savedComparisons, fetchComparisons, removeComparisonById } = useComparisons();
 
 const isOwnPage = computed(() => !props.username);
 
@@ -69,32 +69,64 @@ async function fetchViewingComps() {
     .select('id, user_id, created_at, saved_comparison_cities(slot, state, city, city_name)')
     .eq('user_id', profile.id)
     .order('created_at', { ascending: false });
-  viewingComps.value = (data ?? []).map((row: any) => ({
-    id: row.id,
-    user_id: row.user_id,
-    created_at: row.created_at,
-    cities: [...(row.saved_comparison_cities ?? [])].sort((a: any, b: any) => a.slot - b.slot),
-  }));
+  viewingComps.value = (data ?? []).map(toSavedComparison);
 }
 
 const displayComparisons = computed(() => isOwnPage.value ? savedComparisons.value : viewingComps.value);
 const pageTitle           = computed(() => isOwnPage.value ? 'Saved Comparisons' : `${viewingName.value}'s Comparisons`);
 
-interface CardCity {
+// ── Filter by comparison size ─────────────────────────────────
+// Only offered once the list actually mixes sizes — a row of chips that all say "2 cities"
+// is noise.
+const sizeFilter = ref<number | null>(null);
+
+const sizeCounts = computed(() => {
+  const counts = new Map<number, number>();
+  for (const c of displayComparisons.value) {
+    counts.set(c.cities.length, (counts.get(c.cities.length) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((x, y) => x[0] - y[0]).map(([size, count]) => ({ size, count }));
+});
+
+const visibleComparisons = computed(() =>
+  sizeFilter.value == null
+    ? displayComparisons.value
+    : displayComparisons.value.filter((c) => c.cities.length === sizeFilter.value),
+);
+
+// Deleting the last comparison of the filtered size would otherwise strand an empty grid.
+watch(sizeCounts, (counts) => {
+  if (sizeFilter.value != null && !counts.some((c) => c.size === sizeFilter.value)) sizeFilter.value = null;
+});
+
+// ── Per-city photo + population ───────────────────────────────
+// Keyed by city rather than by card: the same city tends to show up in several saved
+// comparisons, and it only needs fetching once.
+interface CityExtras {
   photo: string | null;
   population: number | null;
-}
-
-interface CardData {
-  cities: CardCity[];
   loading: boolean;
 }
 
-const cardData = ref<Record<string, CardData>>({});
-const openMobileMenuId = ref<string | null>(null);
+const cityExtras = ref<Record<string, CityExtras>>({});
 
-function cardKey(c: SavedComparison) {
-  return c.id;
+function cityKey(city: { state: string; city: string }) {
+  return `${city.state.toLowerCase()}-${city.city}`;
+}
+
+function extras(city: SavedComparisonCity): CityExtras | undefined {
+  return cityExtras.value[cityKey(city)];
+}
+
+async function loadCity(city: SavedComparisonCity) {
+  const key = cityKey(city);
+  if (cityExtras.value[key]) return;
+  cityExtras.value[key] = { photo: null, population: null, loading: true };
+  const [photo, cityInfo] = await Promise.all([
+    fetchCityPhoto(city.state, city.city),
+    fetchCity(city.state, city.city).catch(() => null),
+  ]);
+  cityExtras.value[key] = { photo, population: cityInfo?.population ?? null, loading: false };
 }
 
 function formatPop(n: number) {
@@ -103,79 +135,64 @@ function formatPop(n: number) {
   return n.toLocaleString();
 }
 
-async function loadCard(c: SavedComparison) {
-  const key = cardKey(c);
-  cardData.value[key] = { cities: c.cities.map(() => ({ photo: null, population: null })), loading: true };
-  const loaded = await Promise.all(
-    c.cities.map(async (city) => {
-      const [photo, cityInfo] = await Promise.all([
-        fetchCityPhoto(city.state, city.city),
-        fetchCity(city.state, city.city).catch(() => null),
-      ]);
-      return { photo, population: cityInfo?.population ?? null };
-    }),
-  );
-  cardData.value[key] = { cities: loaded, loading: false };
+function formatSaved(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function slotLetter(i: number) {
+  return String.fromCharCode(65 + i);
+}
+
+// The photo mosaic changes shape with the number of cities: a diagonal head-to-head for 2,
+// a slanted triptych for 3, a 2x2 block for 4. Anything else falls back to an even strip.
+function mosaicLayout(count: number) {
+  if (count === 2) return 'duo';
+  if (count === 3) return 'trio';
+  if (count === 4) return 'quad';
+  return 'strip';
+}
+
+function cardLabel(c: SavedComparison) {
+  return `Open comparison: ${c.cities.map((city) => city.city_name).join(' vs ')}`;
 }
 
 async function init() {
-  cardData.value = {};
+  sizeFilter.value = null;
   if (isOwnPage.value) {
     if (!user.value) return;
     await fetchComparisons();
-    savedComparisons.value.forEach(loadCard);
   } else {
     await fetchViewingComps();
-    viewingComps.value.forEach(loadCard);
   }
+  displayComparisons.value.forEach((c) => c.cities.forEach(loadCity));
 }
 
 watch(() => user.value?.id, init, { immediate: true });
 watch(() => props.username, init);
 
-function onMouseMove(e: MouseEvent, el: HTMLElement) {
-  const rect = el.getBoundingClientRect();
-  el.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
-  el.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
-}
-
 function goToComparison(c: SavedComparison) {
   router.push(buildCompareUrl(c.cities.map((city) => ({ state: city.state, city: city.city }))));
 }
 
-function toggleMobileMenu(e: MouseEvent, comparisonId: string) {
-  e.stopPropagation();
-  openMobileMenuId.value = openMobileMenuId.value === comparisonId ? null : comparisonId;
+const removingId = ref<string | null>(null);
+
+async function handleRemove(c: SavedComparison) {
+  if (removingId.value) return;
+  removingId.value = c.id;
+  await removeComparisonById(c.id);
+  removingId.value = null;
 }
-
-async function handleRemove(e: MouseEvent, c: SavedComparison) {
-  e.stopPropagation();
-  openMobileMenuId.value = null;
-  await removeComparison(c.cities.map((city) => ({ state: city.state, city: city.city })));
-}
-
-function handleDocumentClick() {
-  openMobileMenuId.value = null;
-}
-
-onMounted(() => {
-  document.addEventListener('click', handleDocumentClick, { capture: true });
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener('click', handleDocumentClick, { capture: true });
-});
 </script>
 
 <template>
-  <div class="cmp-page">
+  <div class="scmp-page">
     <div class="container container--header-only">
       <DashboardHeader page-label="Saved Comparisons" @logo-click="router.push({ name: 'search' })" @search="onHeaderSearch" />
     </div>
 
-    <div class="cmp-page__heading">
-      <h1 class="cmp-page__title">
-        <span class="mdi mdi-bookmark-multiple cmp-page__title-icon"></span>
+    <div class="scmp-page__heading">
+      <h1 class="scmp-page__title">
+        <span class="mdi mdi-bookmark-multiple scmp-page__title-icon"></span>
         {{ pageTitle }}
       </h1>
       <button class="breadcrumb" @click="router.back()">
@@ -186,112 +203,126 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <div v-if="isOwnPage && !user" class="cmp-empty">
-      <span class="mdi mdi-account-lock-outline cmp-empty__icon"></span>
-      <p class="cmp-empty__text">Sign in to see your saved comparisons</p>
+    <div v-if="isOwnPage && !user" class="scmp-empty">
+      <span class="mdi mdi-account-lock-outline scmp-empty__icon"></span>
+      <p class="scmp-empty__text">Sign in to see your saved comparisons</p>
     </div>
 
-    <div v-else-if="!isOwnPage && viewingAccessDenied" class="cmp-empty">
-      <span class="mdi mdi-lock-outline cmp-empty__icon"></span>
-      <p class="cmp-empty__text">{{ viewingNotice?.title }}</p>
-      <p class="cmp-empty__hint">{{ viewingNotice?.description }}</p>
+    <div v-else-if="!isOwnPage && viewingAccessDenied" class="scmp-empty">
+      <span class="mdi mdi-lock-outline scmp-empty__icon"></span>
+      <p class="scmp-empty__text">{{ viewingNotice?.title }}</p>
+      <p class="scmp-empty__hint">{{ viewingNotice?.description }}</p>
     </div>
 
-    <div v-else-if="displayComparisons.length === 0" class="cmp-empty">
-      <span class="mdi mdi-bookmark-off-outline cmp-empty__icon"></span>
-      <p class="cmp-empty__text">No saved comparisons yet</p>
-      <p v-if="isOwnPage" class="cmp-empty__hint">Open a comparison and hit Save to keep it here.</p>
+    <div v-else-if="displayComparisons.length === 0" class="scmp-empty">
+      <span class="mdi mdi-bookmark-off-outline scmp-empty__icon"></span>
+      <p class="scmp-empty__text">No saved comparisons yet</p>
+      <template v-if="isOwnPage">
+        <p class="scmp-empty__hint">Line up 2 to 4 cities and hit Save comparison to keep them here.</p>
+        <button class="scmp-empty__cta" @click="router.push({ name: 'compare-empty' })">Compare cities</button>
+      </template>
     </div>
 
-    <div v-else class="cmp-grid">
-      <div
-        v-for="c in displayComparisons"
-        :key="cardKey(c)"
-        class="cmp-card"
-        @click="goToComparison(c)"
-        @mousemove="onMouseMove($event, $event.currentTarget as HTMLElement)"
-      >
+    <template v-else>
+      <div v-if="sizeCounts.length > 1" class="scmp-filters" role="group" aria-label="Filter by number of cities">
         <button
-          v-if="isOwnPage"
-          class="cmp-card__menu-trigger"
-          aria-label="More actions"
-          @click="toggleMobileMenu($event, cardKey(c))"
+          class="scmp-filters__chip"
+          :class="{ 'scmp-filters__chip--active': sizeFilter == null }"
+          :aria-pressed="sizeFilter == null"
+          @click="sizeFilter = null"
         >
-          <span class="cmp-card__menu-dots" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
-          </span>
+          All <span class="scmp-filters__count">{{ displayComparisons.length }}</span>
         </button>
-
-        <div
-          v-if="isOwnPage && openMobileMenuId === cardKey(c)"
-          class="cmp-card__menu"
-          @click.stop
-        >
-          <button
-            class="cmp-card__menu-delete"
-            @click="handleRemove($event, c)"
-          >
-            <span class="mdi mdi-trash-can-outline"></span>
-            Delete comparison
-          </button>
-        </div>
-
-        <!-- Photo thumbnails -->
-        <div class="cmp-card__photos">
-          <template v-for="(city, i) in c.cities" :key="`${city.state}-${city.city}`">
-            <div v-if="i > 0" class="cmp-card__vs-sep">VS</div>
-            <div
-              class="cmp-card__thumb"
-              :class="{ 'cmp-card__thumb--loading': !cardData[cardKey(c)] || cardData[cardKey(c)].loading }"
-              :style="cardData[cardKey(c)]?.cities[i]?.photo ? { backgroundImage: `url(${cardData[cardKey(c)].cities[i].photo})` } : {}"
-            >
-              <span class="cmp-card__thumb-badge">{{ String.fromCharCode(65 + i) }}</span>
-            </div>
-          </template>
-        </div>
-
-        <!-- Stats -->
-        <div class="cmp-card__stats" :style="{ gridTemplateColumns: `repeat(${c.cities.length}, 1fr)` }">
-          <div v-for="(city, i) in c.cities" :key="`${city.state}-${city.city}-stat`" class="cmp-card__city-col" :class="{ 'cmp-card__city-col--b': i > 0 }">
-            <div class="cmp-card__city-name">{{ city.city_name }}</div>
-            <div class="cmp-card__city-sub">{{ city.state.toUpperCase() }}<template v-if="cardData[cardKey(c)]?.cities[i]?.population"> · {{ formatPop(cardData[cardKey(c)].cities[i].population!) }}</template></div>
-          </div>
-        </div>
-
-        <!-- Remove button (own page only) -->
         <button
-          v-if="isOwnPage"
-          class="cmp-card__remove"
-          aria-label="Remove comparison"
-          @click="handleRemove($event, c)"
+          v-for="s in sizeCounts"
+          :key="s.size"
+          class="scmp-filters__chip"
+          :class="{ 'scmp-filters__chip--active': sizeFilter === s.size }"
+          :aria-pressed="sizeFilter === s.size"
+          @click="sizeFilter = s.size"
         >
-          <span class="cmp-card__trash-lid mdi mdi-minus"></span>
-          <span class="mdi mdi-trash-can-outline cmp-card__trash-body"></span>
+          {{ s.size }} cities <span class="scmp-filters__count">{{ s.count }}</span>
         </button>
       </div>
-    </div>
 
-    <button class="cmp-page__mobile-back" @click="router.back()">
+      <div class="scmp-grid">
+        <article
+          v-for="c in visibleComparisons"
+          :key="c.id"
+          class="scmp-card"
+          :class="{ 'scmp-card--removing': removingId === c.id }"
+          role="link"
+          tabindex="0"
+          :aria-label="cardLabel(c)"
+          @click="goToComparison(c)"
+          @keydown.enter.self="goToComparison(c)"
+        >
+          <div class="scmp-mosaic" :class="`scmp-mosaic--${mosaicLayout(c.cities.length)}`" aria-hidden="true">
+            <div
+              v-for="(city, i) in c.cities"
+              :key="cityKey(city)"
+              class="scmp-mosaic__panel"
+              :class="{ 'scmp-mosaic__panel--loading': extras(city)?.loading !== false }"
+              :style="{ '--slot-color': `var(--compare-slot-${(i % 4) + 1})` }"
+            >
+              <div
+                class="scmp-mosaic__photo"
+                :style="extras(city)?.photo ? { backgroundImage: `url(${extras(city)!.photo})` } : undefined"
+              ></div>
+              <span class="scmp-mosaic__letter">{{ slotLetter(i) }}</span>
+            </div>
+            <span v-if="c.cities.length === 2" class="scmp-mosaic__vs">vs</span>
+          </div>
+
+          <ul class="scmp-card__cities" :style="{ '--city-count': c.cities.length }">
+            <li
+              v-for="(city, i) in c.cities"
+              :key="cityKey(city)"
+              class="scmp-card__city"
+              :style="{ '--slot-color': `var(--compare-slot-${(i % 4) + 1})` }"
+            >
+              <span class="scmp-card__city-name">{{ city.city_name }}</span>
+              <span class="scmp-card__city-sub">
+                {{ city.state.toUpperCase() }}<template v-if="extras(city)?.population"> · {{ formatPop(extras(city)!.population!) }}</template>
+              </span>
+            </li>
+          </ul>
+
+          <div class="scmp-card__footer">
+            <span class="scmp-card__meta">{{ c.cities.length }} cities · Saved {{ formatSaved(c.created_at) }}</span>
+            <button
+              v-if="isOwnPage"
+              class="scmp-card__delete"
+              :disabled="removingId === c.id"
+              :aria-label="`Delete comparison: ${c.cities.map((city) => city.city_name).join(' vs ')}`"
+              @click.stop="handleRemove(c)"
+            >
+              <span class="mdi mdi-trash-can-outline"></span>
+              <span class="scmp-card__delete-text">Delete</span>
+            </button>
+          </div>
+        </article>
+      </div>
+    </template>
+
+    <button class="scmp-page__mobile-back" aria-label="Back" @click="router.back()">
       <span class="mdi mdi-arrow-left"></span>
     </button>
   </div>
 </template>
 
 <style scoped>
-/* TODO(color-tokens): This file still contains hardcoded colors outside shared CSS variables. Keep them unchanged during the token refactor. */
 :deep(.site-header) {
   margin-bottom: 0;
   padding-bottom: 8px;
 }
 
-.cmp-page {
+.scmp-page {
   min-height: 100vh;
   padding: 0 0 60px;
 }
 
-.cmp-page__mobile-back {
+.scmp-page__mobile-back {
   position: fixed;
   right: 18px;
   bottom: 18px;
@@ -310,12 +341,12 @@ onBeforeUnmount(() => {
   z-index: 30;
 }
 
-.cmp-page__mobile-back .mdi {
+.scmp-page__mobile-back .mdi {
   font-size: 1.2rem;
 }
 
 /* ── Heading ─────────────────────────────────────────── */
-.cmp-page__heading {
+.scmp-page__heading {
   padding: 4px 32px 16px;
   max-width: 1440px;
   margin: 0 auto;
@@ -325,7 +356,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
 }
 
-.cmp-page__title {
+.scmp-page__title {
   font-size: 1.8rem;
   font-weight: 800;
   color: var(--text-primary);
@@ -336,45 +367,106 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
-.cmp-page__title-icon {
+.scmp-page__title-icon {
   color: var(--accent);
   font-size: 1.5rem;
 }
 
 /* ── Empty states ────────────────────────────────────── */
-.cmp-empty {
+.scmp-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 12px;
   min-height: 60vh;
+  padding: 0 24px;
   text-align: center;
 }
 
-.cmp-empty__icon {
+.scmp-empty__icon {
   font-size: 3rem;
   color: var(--accent);
   opacity: 0.35;
 }
 
-.cmp-empty__text {
+.scmp-empty__text {
   margin: 0;
   font-size: 1rem;
   color: var(--text-secondary);
   font-weight: 600;
 }
 
-.cmp-empty__hint {
+.scmp-empty__hint {
   margin: 0;
   font-size: 0.85rem;
   color: var(--text-muted);
 }
 
+.scmp-empty__cta {
+  margin-top: 6px;
+  padding: 9px 20px;
+  border: none;
+  border-radius: 100px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.scmp-empty__cta:hover {
+  background: var(--accent-hover);
+}
+
+/* ── Size filter ─────────────────────────────────────── */
+.scmp-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 1440px;
+  margin: 0 auto 18px;
+  padding: 0 80px;
+}
+
+.scmp-filters__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-card);
+  border-radius: 100px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.scmp-filters__chip:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border-card));
+  color: var(--text-primary);
+}
+
+.scmp-filters__chip--active,
+.scmp-filters__chip--active:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.scmp-filters__count {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  opacity: 0.75;
+}
+
 /* ── Grid ────────────────────────────────────────────── */
-.cmp-grid {
+.scmp-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
   padding: 0 80px;
   max-width: 1440px;
@@ -382,212 +474,295 @@ onBeforeUnmount(() => {
 }
 
 /* ── Card ────────────────────────────────────────────── */
-.cmp-card {
-  position: relative;
+.scmp-card {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
   background: var(--bg-card);
   border: 1px solid var(--border-card);
   border-radius: 16px;
-  overflow: hidden;
   cursor: pointer;
-  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  transition: box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
 }
 
-.cmp-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(
-    400px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
-    color-mix(in srgb, var(--accent) 10%, transparent),
-    transparent 60%
-  );
-  opacity: 0;
-  pointer-events: none;
-  z-index: 1;
-  border-radius: inherit;
-  transition: opacity 0.3s ease;
-}
-
-.cmp-card:hover {
-  box-shadow: var(--card-shadow-hover), 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent), 0 0 28px color-mix(in srgb, var(--accent) 13%, transparent);
+.scmp-card:hover {
+  box-shadow: var(--card-shadow-hover), 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
   transform: translateY(-2px);
 }
 
-.cmp-card:hover::before {
-  opacity: 1;
+.scmp-card:focus-visible,
+.scmp-filters__chip:focus-visible,
+.scmp-card__delete:focus-visible,
+.scmp-empty__cta:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-/* ── Photo strip ─────────────────────────────────────── */
-.cmp-card__photos {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  padding: 12px 12px 0;
+.scmp-card--removing {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
-.cmp-card__thumb {
+/* ── Photo mosaic ────────────────────────────────────── */
+/* --seam is the gutter between photos (the card shows through it); --slant is how far a
+   diagonal seam travels horizontally from top to bottom. Hovering the card pulls the photos
+   apart slightly. */
+.scmp-mosaic {
+  --seam: 4px;
+  --slant: 48px;
   position: relative;
-  flex: 1;
-  height: 160px;
+  height: 232px;
   border-radius: 10px;
-  background-color: var(--accent);
+  overflow: hidden;
+}
+
+.scmp-card:hover .scmp-mosaic,
+.scmp-card:focus-visible .scmp-mosaic {
+  --seam: 10px;
+}
+
+.scmp-mosaic__panel {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--slot-color);
+}
+
+.scmp-mosaic__photo {
+  position: absolute;
+  inset: 0;
   background-size: cover;
   background-position: center;
-  overflow: hidden;
-  transition: transform 0.35s ease;
+transition: transform 0.5s ease;
 }
 
-.cmp-card:hover .cmp-card__thumb {
-  transform: scale(1.03);
+.scmp-card:hover .scmp-mosaic__photo {
+  transform: scale(1.04);
 }
 
-.cmp-card__thumb--b {
-  background-color: var(--city-a);
+/* Slot-colored wash rising from the bottom edge: ties each photo to its city's color in the
+   list below and keeps the letter readable over bright skies. */
+.scmp-mosaic__panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, color-mix(in srgb, var(--slot-color) 70%, #000) 0%, transparent 42%);
+  opacity: 0.75;
+  pointer-events: none;
 }
 
-.cmp-card__thumb--loading {
-  background-image: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent) 100%) !important;
-  animation: cmp-shimmer 1.6s ease-in-out infinite alternate;
+.scmp-mosaic__panel--loading .scmp-mosaic__photo {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--slot-color) 78%, #000), var(--slot-color));
+  animation: scmp-shimmer 1.6s ease-in-out infinite alternate;
 }
 
-.cmp-card__thumb--loading-b,
-.cmp-card__thumb--b.cmp-card__thumb--loading {
-  background-image: linear-gradient(135deg, color-mix(in srgb, var(--city-a) 82%, black) 0%, var(--city-a) 100%) !important;
-}
-
-@keyframes cmp-shimmer {
+@keyframes scmp-shimmer {
   from { filter: brightness(0.85); }
   to   { filter: brightness(1.1); }
 }
 
-.cmp-card__thumb-badge {
+.scmp-mosaic__letter {
   position: absolute;
-  bottom: 7px;
-  left: 8px;
-  font-size: 0.6rem;
-  font-weight: 800;
-  color: var(--text-primary);
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(4px);
-  border-radius: 4px;
-  padding: 2px 6px;
-  letter-spacing: 0.06em;
-}
-
-.cmp-card__thumb-badge--b {
-  left: auto;
-  right: 8px;
-}
-
-.cmp-card__vs-sep {
-  flex-shrink: 0;
-  padding: 0 10px;
-  font-size: 0.62rem;
-  font-weight: 800;
-  color: var(--text-muted);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  user-select: none;
-}
-
-/* ── Stats section ───────────────────────────────────── */
-.cmp-card__stats {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 12px 14px 14px;
-  gap: 6px;
-  border-top: 1px solid var(--border-subtle);
-  margin-top: 12px;
-}
-
-  .cmp-card__city-col {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-
-.cmp-card__city-col--b {
-  text-align: right;
-  align-items: flex-end;
-}
-
-.cmp-card__city-name {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
-}
-
-  .cmp-card__city-sub {
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-/* ── Remove button ───────────────────────────────────── */
-.cmp-card__remove {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 4;
+  left: 10px;
+  bottom: 10px;
+  z-index: 1;
   width: 32px;
   height: 32px;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--slot-color) 55%, rgba(0, 0, 0, 0.35));
+  backdrop-filter: blur(6px);
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  padding-bottom: 2px;
+  color: #fff;
+}
+
+/* 2 and 3 cities (and the fallback strip): a row of photos cut by parallel diagonal seams.
+   Each photo overlaps the one before it by the slant width and is clipped to a
+   parallelogram, so the seams stay a constant --seam wide from top to bottom. */
+.scmp-mosaic--duo,
+.scmp-mosaic--trio,
+.scmp-mosaic--strip {
+  display: flex;
+}
+
+.scmp-mosaic--trio {
+  --slant: 36px;
+}
+
+.scmp-mosaic--strip {
+  --slant: 0px;
+}
+
+.scmp-mosaic--duo .scmp-mosaic__panel,
+.scmp-mosaic--trio .scmp-mosaic__panel,
+.scmp-mosaic--strip .scmp-mosaic__panel {
+  flex: 1 1 0;
+  clip-path: polygon(var(--slant) 0, 100% 0, calc(100% - var(--slant)) 100%, 0 100%);
+  transition: margin 0.3s ease;
+}
+
+.scmp-mosaic--duo .scmp-mosaic__panel + .scmp-mosaic__panel,
+.scmp-mosaic--trio .scmp-mosaic__panel + .scmp-mosaic__panel,
+.scmp-mosaic--strip .scmp-mosaic__panel + .scmp-mosaic__panel {
+  margin-left: calc(var(--seam) - var(--slant));
+}
+
+.scmp-mosaic--duo .scmp-mosaic__panel:first-child,
+.scmp-mosaic--trio .scmp-mosaic__panel:first-child,
+.scmp-mosaic--strip .scmp-mosaic__panel:first-child {
+  clip-path: polygon(0 0, 100% 0, calc(100% - var(--slant)) 100%, 0 100%);
+}
+
+.scmp-mosaic--duo .scmp-mosaic__panel:last-of-type,
+.scmp-mosaic--trio .scmp-mosaic__panel:last-of-type,
+.scmp-mosaic--strip .scmp-mosaic__panel:last-of-type {
+  clip-path: polygon(var(--slant) 0, 100% 0, 100% 100%, 0 100%);
+}
+
+/* The slant eats the bottom-left corner of every photo after the first; nudge the letter
+   clear of it. */
+.scmp-mosaic--duo .scmp-mosaic__panel + .scmp-mosaic__panel .scmp-mosaic__letter,
+.scmp-mosaic--trio .scmp-mosaic__panel + .scmp-mosaic__panel .scmp-mosaic__letter {
+  left: 18px;
+}
+
+.scmp-mosaic__vs {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1rem;
+  transform: translate(-50%, -50%);
+}
+
+/* 4 cities: a 2x2 block. */
+.scmp-mosaic--quad {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: var(--seam);
+  transition: gap 0.3s ease;
+}
+
+/* ── City list ───────────────────────────────────────── */
+.scmp-card__cities {
+  display: grid;
+  grid-template-columns: repeat(var(--city-count), minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0 0;
+  padding: 0 2px;
+  list-style: none;
+}
+
+.scmp-card__city {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--slot-color);
+}
+
+.scmp-card__city-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scmp-card__city-sub {
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Footer ──────────────────────────────────────────── */
+.scmp-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 30px;
+  margin-top: 14px;
+  padding: 10px 2px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.scmp-card__meta {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.scmp-card__delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 100px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 600;
   cursor: pointer;
-  opacity: 0;
-  transform: scale(0.8);
-  transition: opacity 0.18s, transform 0.18s, color 0.18s;
-  filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.9));
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.cmp-card:hover .cmp-card__remove {
-  opacity: 1;
-  transform: scale(1);
-}
-
-.cmp-card__remove:hover {
+.scmp-card__delete:hover {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
 }
 
-.cmp-card__trash-lid {
-  position: absolute;
-  font-size: 0.75rem;
-  top: 4px;
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-  transform-origin: center bottom;
+.scmp-card__delete .mdi {
+  font-size: 0.95rem;
 }
 
-.cmp-card__trash-body {
-  font-size: 1.3rem;
-  margin-top: 2px;
+@media (prefers-reduced-motion: reduce) {
+  .scmp-card,
+  .scmp-mosaic__photo,
+  .scmp-mosaic__panel,
+  .scmp-mosaic--quad {
+    transition: none;
+  }
+
+  .scmp-mosaic__panel--loading .scmp-mosaic__photo {
+    animation: none;
+  }
 }
 
-.cmp-card__remove:hover .cmp-card__trash-lid {
-  transform: rotate(-35deg) translateX(-2px) translateY(-2px);
-}
+@media (max-width: 900px) {
+  .scmp-grid {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0 32px;
+  }
 
-.cmp-card__menu-trigger,
-.cmp-card__menu {
-  display: none;
-}
-
-.cmp-card__menu-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.cmp-card__menu-dots span {
-  width: 3px;
-  height: 3px;
-  border-radius: 999px;
-  background: currentColor;
+  .scmp-filters {
+    padding: 0 32px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -604,138 +779,67 @@ onBeforeUnmount(() => {
     margin-bottom: 0;
   }
 
-  .cmp-page__heading {
+  .scmp-page__heading {
     padding: 0 16px 14px;
   }
 
-  .cmp-page__heading .breadcrumb {
+  .scmp-page__title {
+    font-size: 1.4rem;
+  }
+
+  .scmp-page__heading .breadcrumb {
     display: none;
   }
 
-  .cmp-grid {
-    grid-template-columns: 1fr;
+  .scmp-filters {
+    padding: 0 16px;
+    margin-bottom: 14px;
+  }
+
+  .scmp-grid {
     gap: 16px;
     padding: 0 16px;
   }
 
-  .cmp-card {
-    width: 100%;
-    box-sizing: border-box;
+  .scmp-mosaic {
+    --slant: 28px;
+    height: 168px;
   }
 
-  .cmp-card__photos {
-    padding: 18px 12px 12px;
+  .scmp-mosaic--trio {
+    --slant: 22px;
   }
 
-  .cmp-card__thumb {
-    height: 92px;
+  .scmp-mosaic__vs {
+    width: 36px;
+    height: 36px;
+    font-size: 0.85rem;
   }
 
-  .cmp-card__vs-sep {
-    padding: 0 6px;
-    font-size: 0.56rem;
+  .scmp-mosaic__letter {
+    font-size: 1.2rem;
   }
 
-  .cmp-card__stats {
-    padding: 8px 10px 10px;
-    margin-top: 0;
+  /* Three or four names don't fit side by side on a phone. */
+  .scmp-card__cities {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
   }
 
-  .cmp-card__city-name {
-    font-size: 0.8rem;
-    flex: 0 1 auto;
-    min-width: 0;
-  }
-
-  .cmp-card__city-sub {
-    font-size: 0.64rem;
-    white-space: nowrap;
-    flex: 0 0 auto;
-  }
-
-  .cmp-card__city-col {
-    flex-direction: row;
-    align-items: baseline;
-    gap: 6px;
-  }
-
-  .cmp-card__city-col--b {
-    justify-content: flex-end;
-  }
-
-  .cmp-card__city-col--b .cmp-card__city-name,
-  .cmp-card__city-col--b .cmp-card__city-sub {
-    text-align: right;
-  }
-
-  .cmp-card__remove {
-    display: none;
-  }
-
-  .cmp-card__menu-trigger {
-    display: inline-flex;
-    position: absolute;
-    top: -8px;
-    right: 8px;
-    z-index: 5;
-    width: 32px;
-    height: 32px;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 9px;
-    background: transparent;
-    color: rgba(233, 240, 252, 0.88);
-    box-shadow: none;
-  }
-
-  .cmp-card__menu-dots {
-    gap: 4px;
-  }
-
-  .cmp-card__menu {
-    display: flex;
-    position: absolute;
-    top: -8px;
-    right: 8px;
-    z-index: 6;
-    padding-top: 34px;
-  }
-
-  .cmp-card__menu-delete {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    border: 1px solid rgba(248, 113, 113, 0.28);
-    border-radius: 12px;
-    background: rgba(60, 18, 18, 0.94);
-    color: color-mix(in srgb, var(--danger) 60%, var(--text-primary));
-    padding: 10px 12px;
-    font-size: 0.76rem;
-    font-weight: 700;
-    letter-spacing: 0.01em;
-    white-space: nowrap;
-    box-shadow: 0 14px 30px rgba(8, 10, 20, 0.34);
-  }
-
-  .cmp-card__menu-delete .mdi {
-    font-size: 0.92rem;
-  }
-
-  .cmp-card:hover {
+  .scmp-card:hover {
     box-shadow: none;
     transform: none;
   }
 
-  .cmp-card:hover::before {
-    opacity: 0;
+  .scmp-card:hover .scmp-mosaic {
+    --seam: 4px;
   }
 
-  .cmp-card:hover .cmp-card__thumb {
+  .scmp-card:hover .scmp-mosaic__photo {
     transform: none;
   }
 
-  .cmp-page__mobile-back {
+  .scmp-page__mobile-back {
     display: inline-flex;
   }
 }

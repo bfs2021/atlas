@@ -241,7 +241,8 @@ async function toggleSave() {
   if (isSaved.value) {
     await removeComparison(slots.value);
   } else {
-    await addComparison(bundles.value.map((b) => ({ state: b.state, city: b.city, cityName: b.name })));
+    const saved = await addComparison(bundles.value.map((b) => ({ state: b.state, city: b.city, cityName: b.name })));
+    if (!saved) return;
     showSaveConfirmation.value = true;
     setTimeout(() => {
       showSaveConfirmation.value = false;
