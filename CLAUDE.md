@@ -53,6 +53,9 @@ pnpm --filter @atlas/api test:watch
 pnpm --filter @atlas/api test:coverage
 pnpm --filter @atlas/api typecheck
 
+# Web lib tests (Vitest; pure src/lib code only, no component tests)
+pnpm --filter @atlas/web test
+
 # All workspace tests
 pnpm test
 ```
