@@ -46,7 +46,12 @@ export function titleForRoute(route: RouteLocationNormalized): string | null {
   if (name === 'compare') {
     const cities = parseCompareCitiesParam(param(route, 'cities'));
     if (!cities.length) return 'Compare Cities';
-    return `Compare ${cities.map((c) => slugToDisplay(c.city)).join(' vs ')}`;
+    // Tabs truncate from the end, so lead with the city names and cap at two — "vs" already
+    // signals a comparison, and 3–4 full names would push everything else out of view.
+    const names = cities.map((c) => slugToDisplay(c.city));
+    if (names.length === 1) return `Compare ${names[0]}`;
+    const extra = names.length - 2;
+    return `${names[0]} vs ${names[1]}${extra > 0 ? ` +${extra} more` : ''}`;
   }
   if (name === 'user-profile') return `@${param(route, 'username')}`;
   if (name === 'user-favorites') return `@${param(route, 'username')}'s Favorites`;
