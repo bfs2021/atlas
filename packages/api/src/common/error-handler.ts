@@ -8,6 +8,13 @@ const GENERIC_MESSAGES: Record<number, string> = {
 // Single place that turns a thrown error into a response. Routes built with route() (see
 // validation.ts) forward every error here, so status codes are consistent across the API and
 // internal details (stack traces, upstream response bodies) never reach the client.
+// The request URL is caller-controlled, so it's passed as an argument to a constant format
+// string, never as the format string itself (a "%o" in the URL would otherwise consume the
+// next argument and garble or forge the log line).
+function logError(method: string, url: string, err: unknown): void {
+  console.error("[%s %s]", method, url, err);
+}
+
 export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
   if (res.headersSent) {
     next(err);
@@ -15,7 +22,7 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
   }
 
   if (err instanceof HttpError) {
-    if (err.status >= 500) console.error(`[${req.method} ${req.originalUrl}]`, err);
+    if (err.status >= 500) logError(req.method, req.originalUrl, err);
     res.status(err.status).json({
       error: err.expose ? err.message : (GENERIC_MESSAGES[err.status] ?? "Internal server error"),
     });
@@ -30,6 +37,6 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
     return;
   }
 
-  console.error(`[${req.method} ${req.originalUrl}]`, err);
+  logError(req.method, req.originalUrl, err);
   res.status(500).json({ error: "Internal server error" });
 };

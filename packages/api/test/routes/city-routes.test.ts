@@ -360,3 +360,15 @@ describe("route-specific behavior", () => {
     });
   });
 });
+
+describe("error logging", () => {
+  it("logs the request URL as data, not as a format string", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    m(climate.getCityClimate).mockRejectedValue(new Error("boom"));
+
+    // %o in the query string must not be interpreted as a format specifier.
+    await request(app).get("/climate/CA/oakland?x=%25o%25s");
+
+    expect(spy).toHaveBeenCalledWith("[%s %s]", "GET", "/climate/CA/oakland?x=%25o%25s", expect.any(Error));
+  });
+});
