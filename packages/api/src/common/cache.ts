@@ -75,6 +75,14 @@ export async function getCached<T>(
   return fresh;
 }
 
+// Test-only: drops the in-process memory layer (and the memoized Redis client, so a test that
+// changes UPSTASH_* env vars gets a fresh read) without touching Redis itself. Lets each test
+// start cold instead of being served a response cached by an earlier test.
+export function resetMemCache(): void {
+  mem.clear();
+  _redis = undefined;
+}
+
 export async function clearCache(
   prefix?: string
 ): Promise<{ memCleared: number; redisCleared: number | null }> {

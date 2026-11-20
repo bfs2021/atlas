@@ -46,9 +46,18 @@ pnpm --filter @atlas/api dev
 
 # Type-check + build web
 pnpm --filter @atlas/web build
+
+# API tests (Vitest) + type-check (includes test files)
+pnpm --filter @atlas/api test
+pnpm --filter @atlas/api test:watch
+pnpm --filter @atlas/api test:coverage
+pnpm --filter @atlas/api typecheck
+
+# All workspace tests
+pnpm test
 ```
 
-No test suite exists yet. Type-check with `vue-tsc` (run via build).
+API tests live in `packages/api/test/` and mount the app via `createApp()` from `src/app.ts` (server startup — env loading, startup caches, `listen` — stays in `src/index.ts`). Outbound HTTP is mocked with MSW (`test/mocks/server.ts`); any request a test doesn't mock is blocked, so tests never hit real Census/BLS/etc. `test/setup.ts` clears Redis/Resend/Supabase/API-key env vars and resets the in-memory cache before each test. CI (`.github/workflows/ci.yml`) runs API typecheck + tests and the web build on every PR. Web type-checking is `vue-tsc` (run via build). The test suite rollout is tracked in epic #134.
 
 Local dev URLs:
 - Frontend: http://localhost:5173 (direct Vite) or https://atlas.local (via Caddy)
