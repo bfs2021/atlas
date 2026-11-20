@@ -8,6 +8,7 @@ import { useAuth } from '../composables/useAuth';
 import { usePreferences, hasRealPreferences } from '../composables/usePreferences';
 import { useFavorites } from '../composables/useFavorites';
 import { computeTopCitiesForState, type TopCityResult } from '../lib/topCities';
+import { setPageTitle } from '../lib/pageTitle';
 
 const props = defineProps<{ code: string }>();
 
@@ -27,6 +28,8 @@ function goToCity(city: string, state: string) {
 const stateCode = computed(() => props.code.toUpperCase());
 const states = ref<StateOption[]>([]);
 const stateName = computed(() => states.value.find(s => s.code.toUpperCase() === stateCode.value)?.name ?? stateCode.value);
+// The router sets the title from the URL's state code; upgrade it to the full name once states load.
+watch(stateName, (name) => setPageTitle(name), { immediate: true });
 
 interface CityRow { name: string; slug: string; population: number; }
 const cities = ref<CityRow[]>([]);
